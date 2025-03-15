@@ -7,6 +7,9 @@ from rnn import RNN
 import torch.optim as optim
 from utils import *
 import torch.nn as nn
+import os
+
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 SEED = 1234
 BATCH_SIZE = 64
@@ -54,9 +57,18 @@ print(LABEL.vocab.stoi)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 train_iterator, valid_iterator, test_iterator = data.BucketIterator.splits(
     (train_data, valid_data, test_data),
-    batch_size = BATCH_SIZE,
-    sort_within_batch = True,
-    device = device)
+    batch_size=BATCH_SIZE,
+    sort_within_batch=True,
+    sort_key=lambda x: len(x.text),
+    device=device
+)
+
+for batch in train_iterator:
+    text, text_lengths = batch.text
+    print("Sample batch text shape:", text.shape)
+    print("Sample batch text_lengths:", text_lengths)
+    print("Sample batch text_lengths device:", text_lengths.device)
+    break
 
 VOCAB_SIZE = len(TEXT.vocab)
 EMBEDDING_DIM = 100

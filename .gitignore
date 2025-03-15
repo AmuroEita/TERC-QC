@@ -1,3 +1,4 @@
 *.pt
 .data/
 __pycache__/
+example.ipynb
