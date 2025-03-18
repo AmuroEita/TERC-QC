@@ -8,7 +8,7 @@ import torch.nn as nn
 from torch.nn.utils.rnn import pack_padded_sequence
 import os
 import time
-from itertools import product
+from random import choice
 
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 SEED = 1234
@@ -94,9 +94,7 @@ def epoch_time(start_time, end_time):
     elapsed_secs = int(elapsed_time - (elapsed_mins * 60))
     return elapsed_mins, elapsed_secs
 
-BATCH_SIZE = 64
-N_EPOCHS = 10
-
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 TEXT = data.Field(tokenize='spacy', tokenizer_language='en_core_web_sm', include_lengths=True)
 LABEL = data.LabelField()
 
@@ -113,45 +111,49 @@ LABEL.build_vocab(train_data)
 print(f"Unique tokens in TEXT vocabulary: {len(TEXT.vocab)}")
 print(f"Unique tokens in LABEL vocabulary: {len(LABEL.vocab)}")
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-train_iterator, valid_iterator, test_iterator = data.BucketIterator.splits(
-    (train_data, valid_data, test_data),
-    batch_size=BATCH_SIZE,
-    sort_within_batch=True,
-    sort_key=lambda x: len(x.text),
-    device=device
-)
-
-param_grid = {
-    'embedding_dim': [100, 200],
-    'hidden_dim': [50, 100],
-    'lr': [0.01, 0.001],
-    'dropout_rate': [0.3, 0.5],
-    'weight_decay': [1e-4, 1e-5]
+param_space = {
+    'embedding_dim': [50, 100, 200, 300],
+    'hidden_dim': [50, 100, 200],
+    'lr': [0.01, 0.005, 0.001, 0.0005],
+    'dropout_rate': [0.2, 0.3, 0.4, 0.5],
+    'weight_decay': [1e-3, 1e-4, 1e-5, 0],
+    'batch_size': [32, 64, 128]
 }
 
-param_combinations = list(product(
-    param_grid['embedding_dim'],
-    param_grid['hidden_dim'],
-    param_grid['lr'],
-    param_grid['dropout_rate'],
-    param_grid['weight_decay']
-))
+N_EPOCHS = 20  
+N_EXPERIMENTS = 50  
 
-def run_grid_search():
+def run_random_search():
     best_valid_acc = 0
     best_params = None
     best_model_state = None
 
-    for idx, (embedding_dim, hidden_dim, lr, dropout_rate, weight_decay) in enumerate(param_combinations):
-        print(f"\nExperiment {idx+1}/{len(param_combinations)}: {embedding_dim}, {hidden_dim}, {lr}, {dropout_rate}, {weight_decay}")
+    for idx in range(N_EXPERIMENTS):
+        params = {
+            'embedding_dim': choice(param_space['embedding_dim']),
+            'hidden_dim': choice(param_space['hidden_dim']),
+            'lr': choice(param_space['lr']),
+            'dropout_rate': choice(param_space['dropout_rate']),
+            'weight_decay': choice(param_space['weight_decay']),
+            'batch_size': choice(param_space['batch_size'])
+        }
+
+        print(f"\nExperiment {idx+1}/{N_EXPERIMENTS}: {params}")
+
+        train_iterator, valid_iterator, test_iterator = data.BucketIterator.splits(
+            (train_data, valid_data, test_data),
+            batch_size=params['batch_size'],
+            sort_within_batch=True,
+            sort_key=lambda x: len(x.text),
+            device=device
+        )
 
         VOCAB_SIZE = len(TEXT.vocab)
         OUTPUT_DIM = len(LABEL.vocab)
-        model = RNN(VOCAB_SIZE, embedding_dim, hidden_dim, OUTPUT_DIM, dropout_rate).to(device)
+        model = RNN(VOCAB_SIZE, params['embedding_dim'], params['hidden_dim'], OUTPUT_DIM, params['dropout_rate']).to(device)
         print(f'The model has {count_parameters(model):,} trainable parameters')
 
-        optimizer = optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
+        optimizer = optim.SGD(model.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
         criterion = nn.CrossEntropyLoss().to(device)
 
         best_valid_loss = float('inf')
@@ -177,18 +179,12 @@ def run_grid_search():
 
         if best_epoch_valid_acc > best_valid_acc:
             best_valid_acc = best_epoch_valid_acc
-            best_params = {
-                'embedding_dim': embedding_dim,
-                'hidden_dim': hidden_dim,
-                'lr': lr,
-                'dropout_rate': dropout_rate,
-                'weight_decay': weight_decay
-            }
+            best_params = params
             torch.save(best_model_state, 'best_model.pt')
 
     return best_params, best_valid_acc
 
-best_params, best_valid_acc = run_grid_search()
+best_params, best_valid_acc = run_random_search()
 
 print("\nBest hyperparameters found:")
 print(best_params)
@@ -206,8 +202,17 @@ best_model = RNN(
 
 optimizer = optim.SGD(best_model.parameters(), lr=best_params['lr'], weight_decay=best_params['weight_decay'])
 criterion = nn.CrossEntropyLoss().to(device)
-
 best_model.load_state_dict(torch.load('best_model.pt'))
 
+train_iterator, valid_iterator, test_iterator = data.BucketIterator.splits(
+    (train_data, valid_data, test_data),
+    batch_size=best_params['batch_size'],
+    sort_within_batch=True,
+    sort_key=lambda x: len(x.text),
+    device=device
+)
+
 test_loss, test_acc = evaluate(best_model, test_iterator, criterion)
-print(f"\nTest Loss: {test_loss:.3f} | Test Acc: {test_acc*100:.2f}%")
+valid_loss, valid_acc = evaluate(best_model, valid_iterator, criterion)
+print(f"\nFinal Validation Loss: {valid_loss:.3f} | Validation Acc: {valid_acc*100:.2f}%")
+print(f"Final Test Loss: {test_loss:.3f} | Test Acc: {test_acc*100:.2f}%")
