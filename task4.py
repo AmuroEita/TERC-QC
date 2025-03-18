@@ -9,6 +9,8 @@ import os
 import gensim.downloader as api
 import time
 
+print(f"PyTorch Version: {torch.__version__}")
+
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 SEED = 1234
@@ -51,6 +53,9 @@ class SentenceClassifier(nn.Module):
 
         if self.sentence_embedding_method == "attention" and self.architecture != "cnn":
             self.attention = nn.Linear(final_hidden_dim, 1)
+            
+        if self.architecture in ["rnn", "gru", "lstm"]:
+            self.flatten_parameters = lambda: None
 
     def forward(self, text, text_lengths):
         vocab_size = self.embedding.num_embeddings
@@ -192,6 +197,10 @@ for word, idx in TEXT.vocab.stoi.items():
 embedding_matrix = torch.FloatTensor(embedding_matrix)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Using device: {device}")
+if device.type == 'cuda':
+    print(f"GPU Name: {torch.cuda.get_device_name(0)}")
+    print(f"CUDA Version: {torch.version.cuda}")
 train_iterator, valid_iterator, test_iterator = data.BucketIterator.splits(
     (train_data, valid_data, test_data),
     batch_size=BATCH_SIZE,
@@ -234,9 +243,8 @@ for config in architectures:
     print(f'The model has {count_parameters(model):,} trainable parameters')
 
     model = model.to(device)
-
-    optimizer = optim.Adam(model.parameters(), lr=0.001)  
     criterion = nn.CrossEntropyLoss().to(device)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     best_valid_loss = float('inf')
 
