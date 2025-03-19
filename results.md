@@ -80,18 +80,19 @@ Architecture: cnn
 
 # TASK 5
 ```
+CNN and Without Data arguement ?
+Validation Loss: 0.708 | Validation Accuracy: 87.93%
+Test Loss: 0.659 | Test Accuracy: 90.75%
+
+CNN and Data arguement
+Validation Loss: 0.708 | Validation Accuracy: 85.76%
+Test Loss: 0.659 | Test Accuracy: 87.82%
+
 With CNN and Without Data arguement
-Final Results:
 Validation Loss: 0.708 | Validation Accuracy: 89.32%
 Test Loss: 0.659 | Test Accuracy: 92.16%
 
-CNN and Without Data arguement
-Final Results:
-Validation Loss: 0.708 | Validation Accuracy: 89.32%
-Test Loss: 0.659 | Test Accuracy: 92.16%
-
-New CNN and Without Data arguement
-Final Results:
+New CNN and Data arguement
 Validation Loss: 0.590 | Validation Accuracy: 94.97%
 Test Loss: 0.639 | Test Accuracy: 93.43%
 ```

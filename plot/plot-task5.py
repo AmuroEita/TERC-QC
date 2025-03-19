@@ -3,8 +3,8 @@ import numpy as np
 
 # Labels for the configurations
 labels = ['Baseline (CNN + No Aug)', 'CNN + Aug', 'New CNN + No Aug', 'New CNN + Aug']
-val_acc = [89.32, 85.76, 94.97]  # Validation accuracies
-test_acc = [92.16, 87.82, 93.43]  # Test accuracies
+val_acc = [87.93, 85.76, 89.32, 94.97]  # Validation accuracies
+test_acc = [90.75, 87.82, 92.16, 93.43]  # Test accuracies
 
 bar_width = 0.35
 x = np.arange(len(labels))

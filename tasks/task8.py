@@ -8,11 +8,6 @@ import torch.nn as nn
 import os
 import gensim.downloader as api
 import time
-import nltk
-from nltk.corpus import wordnet
-
-nltk.download('wordnet')
-nltk.download('averaged_perceptron_tagger')
 
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
@@ -24,45 +19,6 @@ random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
-
-# 数据增强函数
-def get_synonym(word):
-    synsets = wordnet.synsets(word)
-    if not synsets:
-        return word
-    synonyms = [lemma.name() for synset in synsets for lemma in synset.lemmas()]
-    return synonyms[0] if synonyms else word
-
-def synonym_replacement(text, n=1):
-    words = text.split()
-    if len(words) <= 1:
-        return text
-    indices = random.sample(range(len(words)), min(n, len(words)))
-    for i in indices:
-        words[i] = get_synonym(words[i])
-    return ' '.join(words)
-
-def random_deletion(text, p=0.2):
-    words = text.split()
-    if len(words) <= 1:
-        return text
-    new_words = [word for word in words if random.random() > p]
-    return ' '.join(new_words) if new_words else random.choice(words)
-
-def random_swap(text, n=1):
-    words = text.split()
-    if len(words) <= 1:
-        return text
-    for _ in range(n):
-        i, j = random.sample(range(len(words)), 2)
-        words[i], words[j] = words[j], words[i]
-    return ' '.join(words)
-
-def augment_text(text):
-    if random.random() < 0.5:
-        choice = random.choice([synonym_replacement, random_deletion, random_swap])
-        return choice(text)
-    return text
 
 class Attention(nn.Module):
     def __init__(self, hidden_dim):
@@ -132,19 +88,6 @@ LABEL = data.LabelField(dtype=torch.long)
 
 train_data, test_data = datasets.TREC.splits(TEXT, LABEL, fine_grained=False)
 
-# 增强训练数据
-from torchtext.data import Example
-
-def augment_dataset(dataset):
-    augmented_examples = []
-    for ex in dataset.examples:
-        orig_text = ' '.join(ex.text)
-        aug_text = augment_text(orig_text)
-        augmented_examples.append(Example.fromlist([aug_text.split(), ex.label], fields=[('text', TEXT), ('label', LABEL)]))
-    return augmented_examples
-
-train_examples = train_data.examples + augment_dataset(train_data)
-train_data = data.Dataset(train_examples, fields=[('text', TEXT), ('label', LABEL)])
 train_data, valid_data = train_data.split(split_ratio=0.8, random_state=random.seed(SEED))
 
 TEXT.build_vocab(train_data, max_size=20000)
