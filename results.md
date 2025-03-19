@@ -1,9 +1,10 @@
 # TASK 1
 ```
 Best hyperparameters found:
-{'embedding_dim': 200, 'hidden_dim': 100, 'lr': 0.01, 'dropout_rate': 0.3, 'weight_decay': 0.0001}
-Best validation accuracy: 30.28%
-Test Loss: 1.767 | Test Acc: 16.10%
+{'embedding_dim': 50, 'hidden_dim': 200, 'lr': 0.005, 'dropout_rate': 0.4, 'weight_decay': 0, 'batch_size': 32}
+Best validation accuracy: 26.36%
+Final Validation Loss: 1.644 | Validation Acc: 26.36%
+Final Test Loss: 1.647 | Test Acc: 23.32%
 ```
 
 # TASK 2
@@ -67,12 +68,30 @@ Task 3 Best (max method):
 
 Task 4 Results:
 Architecture: bidirectional_gru
-  Validation Loss: 0.473 | Validation Acc: 84.64%
-  Test Loss: 0.401 | Test Acc: 88.51%
+  Validation Loss: 0.500 | Validation Acc: 80.64%
+  Test Loss: 0.427 | Test Acc: 88.25%
 Architecture: bidirectional_lstm
-  Validation Loss: 0.463 | Validation Acc: 85.42%
-  Test Loss: 0.428 | Test Acc: 87.48%
+  Validation Loss: 0.501 | Validation Acc: 85.85%
+  Test Loss: 0.461 | Test Acc: 84.65%
 Architecture: cnn
-  Validation Loss: 0.315 | Validation Acc: 87.67%
-  Test Loss: 0.254 | Test Acc: 92.01%
+  Validation Loss: 0.317 | Validation Acc: 87.93%
+  Test Loss: 0.254 | Test Acc: 91.18%
+```
+
+# TASK 5
+```
+With CNN and Without Data arguement
+Final Results:
+Validation Loss: 0.708 | Validation Accuracy: 89.32%
+Test Loss: 0.659 | Test Accuracy: 92.16%
+
+CNN and Without Data arguement
+Final Results:
+Validation Loss: 0.708 | Validation Accuracy: 89.32%
+Test Loss: 0.659 | Test Accuracy: 92.16%
+
+New CNN and With Data arguement
+Final Results:
+Validation Loss: 0.590 | Validation Accuracy: 94.97%
+Test Loss: 0.639 | Test Accuracy: 93.43%
 ```

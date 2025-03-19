@@ -6,179 +6,160 @@ from torchtext import datasets
 import torch.optim as optim
 import torch.nn as nn
 import os
+import gensim.downloader as api
 import time
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-import spacy
+import nltk
+from nltk.corpus import wordnet
 
-# 设置环境变量以同步 CUDA 操作
+nltk.download('wordnet')
+nltk.download('averaged_perceptron_tagger')
+
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-# 检查设备并设置
-print("Checking PyTorch and CUDA compatibility...")
-print(f"PyTorch version: {torch.__version__}")
-cuda_available = torch.cuda.is_available()
-print(f"CUDA available: {cuda_available}")
-if cuda_available:
-    print(f"CUDA version: {torch.version.cuda}")
-    print(f"Device name: {torch.cuda.get_device_name(0)}")
-    device = torch.device('cuda')
-    try:
-        x = torch.rand(3, 3).cuda()
-        print("Simple CUDA tensor test successful:", x)
-    except RuntimeError as e:
-        print(f"CUDA test failed: {e}")
-        print("Falling back to CPU.")
-        device = torch.device('cpu')
-else:
-    print("CUDA not available, falling back to CPU.")
-    device = torch.device('cpu')
-print(f"Using device: {device}")
-
-# 检查 SpaCy 模型
-try:
-    nlp = spacy.load("en_core_web_sm")
-    print("SpaCy model 'en_core_web_sm' loaded successfully!")
-    TEXT = data.Field(tokenize='spacy', tokenizer_language='en_core_web_sm', include_lengths=True)
-except Exception as e:
-    print(f"Error loading SpaCy model: {e}")
-    TEXT = data.Field(tokenize=str.split, include_lengths=True)
-
-LABEL = data.LabelField()  # 主任务标签（分类）
-
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-def train(model, iterator, optimizer, criterion_class, criterion_reg, alpha=0.5):
-    epoch_loss = 0
-    epoch_acc = 0
-    epoch_reg_loss = 0
-    model.train()
-    for batch in iterator:
-        optimizer.zero_grad()
-        text, text_lengths = batch.text  # text_lengths 已由 TEXT 字段提供
-        batch_size = text.shape[0]
-        labels = batch.label[:batch_size].to(device)
-        lengths = text_lengths[:batch_size].to(device)  # 直接使用 text_lengths
-
-        class_pred, reg_pred = model(text, text_lengths)
-        
-        loss_class = criterion_class(class_pred, labels)
-        loss_reg = criterion_reg(reg_pred.squeeze(), lengths.float())  # 转换为 float 类型
-        loss = alpha * loss_class + (1 - alpha) * loss_reg
-        
-        loss.backward()
-        optimizer.step()
-        
-        epoch_loss += loss_class.item()
-        epoch_reg_loss += loss_reg.item()
-        _, predicted_classes = class_pred.max(dim=1)
-        correct_predictions = (predicted_classes == labels).float()
-        batch_acc = correct_predictions.mean().item()
-        epoch_acc += batch_acc
-    return (epoch_loss / len(iterator), epoch_acc / len(iterator), epoch_reg_loss / len(iterator))
-
-def evaluate(model, iterator, criterion_class, criterion_reg, alpha=0.5):
-    epoch_loss = 0
-    epoch_acc = 0
-    epoch_reg_loss = 0
-    model.eval()
-    with torch.no_grad():
-        for batch in iterator:
-            text, text_lengths = batch.text  # text_lengths 已由 TEXT 字段提供
-            batch_size = text.shape[0]
-            labels = batch.label[:batch_size].to(device)
-            lengths = text_lengths[:batch_size].to(device)  # 直接使用 text_lengths
-
-            class_pred, reg_pred = model(text, text_lengths)
-            
-            loss_class = criterion_class(class_pred, labels)
-            loss_reg = criterion_reg(reg_pred.squeeze(), lengths.float())  # 转换为 float 类型
-            
-            epoch_loss += loss_class.item()
-            epoch_reg_loss += loss_reg.item()
-            _, predicted_classes = class_pred.max(dim=1)
-            correct_predictions = (predicted_classes == labels).float()
-            batch_acc = correct_predictions.mean().item()
-            epoch_acc += batch_acc
-    return (epoch_loss / len(iterator), epoch_acc / len(iterator), epoch_reg_loss / len(iterator))
-
-def epoch_time(start_time, end_time):
-    elapsed_time = end_time - start_time
-    elapsed_mins = int(elapsed_time / 60)
-    elapsed_secs = int(elapsed_time - (elapsed_mins * 60))
-    return elapsed_mins, elapsed_secs
-
-# 修改后的模型：Attention-based Pooling Model
-class MTL_AttentionPooling(nn.Module):
-    def __init__(self, vocab_size, embedding_dim, hidden_dim, output_dim_class):
-        super().__init__()
-        self.embedding = nn.Embedding(vocab_size, embedding_dim)
-        self.lstm = nn.LSTM(embedding_dim, hidden_dim, batch_first=True)
-        self.attention = nn.Linear(hidden_dim, 1)
-        self.fc_class = nn.Linear(hidden_dim, output_dim_class)  # 分类头
-        self.fc_reg = nn.Linear(hidden_dim, 1)  # 回归头
-
-    def forward(self, text, text_lengths):
-        batch_size = text.shape[0]
-        text_lengths = text_lengths[:batch_size]
-        max_seq_len = text.shape[1]
-        text_lengths = torch.clamp(text_lengths, min=1, max=max_seq_len)
-        text_lengths = text_lengths.to(torch.long).cpu()
-        
-        embedded = self.embedding(text)
-        packed_embedded = pack_padded_sequence(embedded, text_lengths, batch_first=True, enforce_sorted=False)
-        packed_output, (hidden, cell) = self.lstm(packed_embedded)
-        output, output_lengths = pad_packed_sequence(packed_output, batch_first=True)
-        
-        attention_weights = self.attention(output)
-        attention_weights = torch.softmax(attention_weights, dim=1)
-        sentence_embedding = torch.sum(output * attention_weights, dim=1)
-        
-        class_output = self.fc_class(sentence_embedding)
-        reg_output = self.fc_reg(sentence_embedding)
-        return class_output, reg_output
-
-# 设置随机种子
 SEED = 1234
 BATCH_SIZE = 64
-N_EPOCHS = 10
+N_EPOCHS = 25
 
 random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 
-# 加载数据集
-train_data, test_data = datasets.TREC.splits(
-    text_field=TEXT,
-    label_field=LABEL,
-    root='.data',
-    fine_grained=False
-)
+# 数据增强函数
+def get_synonym(word):
+    synsets = wordnet.synsets(word)
+    if not synsets:
+        return word
+    synonyms = [lemma.name() for synset in synsets for lemma in synset.lemmas()]
+    return synonyms[0] if synonyms else word
 
-# 手动添加 LENGTH 字段（仅用于调试输出，不影响批次）
-for example in train_data.examples:
-    example.length = len(example.text)
-for example in test_data.examples:
-    example.length = len(example.text)
+def synonym_replacement(text, n=1):
+    words = text.split()
+    if len(words) <= 1:
+        return text
+    indices = random.sample(range(len(words)), min(n, len(words)))
+    for i in indices:
+        words[i] = get_synonym(words[i])
+    return ' '.join(words)
 
-print(f'Number of training examples: {len(train_data)}')
-print(f'Number of testing examples: {len(test_data)}')
-print(vars(train_data.examples[0]))
+def random_deletion(text, p=0.2):
+    words = text.split()
+    if len(words) <= 1:
+        return text
+    new_words = [word for word in words if random.random() > p]
+    return ' '.join(new_words) if new_words else random.choice(words)
 
+def random_swap(text, n=1):
+    words = text.split()
+    if len(words) <= 1:
+        return text
+    for _ in range(n):
+        i, j = random.sample(range(len(words)), 2)
+        words[i], words[j] = words[j], words[i]
+    return ' '.join(words)
+
+def augment_text(text):
+    if random.random() < 0.5:
+        choice = random.choice([synonym_replacement, random_deletion, random_swap])
+        return choice(text)
+    return text
+
+class Attention(nn.Module):
+    def __init__(self, hidden_dim):
+        super().__init__()
+        self.attn = nn.Linear(hidden_dim, hidden_dim)
+        self.v = nn.Parameter(torch.rand(hidden_dim))
+        stdv = 1. / (hidden_dim ** 0.5)
+        self.v.data.uniform_(-stdv, stdv)
+
+    def forward(self, x):
+        batch_size = x.size(0)
+        energy = torch.tanh(self.attn(x.transpose(1, 2)))
+        v = self.v.repeat(batch_size, 1).unsqueeze(-1)
+        attention = torch.bmm(energy, v).squeeze(-1)
+        return torch.softmax(attention, dim=1)
+
+class EnhancedTextClassifier(nn.Module):
+    def __init__(self, vocab_size, embedding_dim, hidden_dim, output_dim, dropout=0.3):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
+        self.dropout = nn.Dropout(dropout)
+        
+        self.conv_layers = nn.ModuleList([
+            nn.Conv1d(embedding_dim, hidden_dim, kernel_size=3, padding=1, dilation=1),
+            nn.Conv1d(embedding_dim, hidden_dim, kernel_size=3, padding=2, dilation=2),
+            nn.Conv1d(embedding_dim, hidden_dim, kernel_size=3, padding=4, dilation=4),
+            nn.Conv1d(embedding_dim, hidden_dim, kernel_size=5, padding=2, dilation=1)
+        ])
+        
+        self.bn = nn.BatchNorm1d(hidden_dim)
+        self.word_attention = Attention(hidden_dim)
+        self.sentence_attention = Attention(hidden_dim)
+        
+        self.residual_proj = nn.Linear(embedding_dim, hidden_dim)
+        
+        self.fc = nn.Linear(hidden_dim * 2, output_dim)
+
+    def forward(self, text, text_lengths):
+        embedded = self.embedding(text)
+        embedded = self.dropout(embedded)
+        embedded = embedded.transpose(1, 2)
+        
+        residual = self.residual_proj(embedded.transpose(1, 2)).transpose(1, 2)
+        
+        conv_outputs = []
+        for conv in self.conv_layers:
+            conv_out = torch.relu(self.bn(conv(embedded)))
+            conv_outputs.append(conv_out)
+        
+        conv_combined = torch.stack(conv_outputs, dim=0).mean(0) + residual
+        
+        word_weights = self.word_attention(conv_combined)
+        word_context = torch.bmm(conv_combined, word_weights.unsqueeze(-1)).squeeze(-1)
+        
+        sentence_repr = torch.max(conv_combined, dim=2)[0]
+        sentence_weights = self.sentence_attention(conv_combined)
+        sentence_context = torch.bmm(conv_combined, sentence_weights.unsqueeze(-1)).squeeze(-1)
+        
+        final_repr = torch.cat([word_context, sentence_context], dim=1)
+        final_repr = self.dropout(final_repr)
+        
+        return self.fc(final_repr)
+
+TEXT = data.Field(tokenize='spacy', tokenizer_language='en_core_web_sm', 
+                 include_lengths=True, pad_first=False, batch_first=True)
+LABEL = data.LabelField(dtype=torch.long)
+
+train_data, test_data = datasets.TREC.splits(TEXT, LABEL, fine_grained=False)
+
+# 增强训练数据
+from torchtext.data import Example
+
+def augment_dataset(dataset):
+    augmented_examples = []
+    for ex in dataset.examples:
+        orig_text = ' '.join(ex.text)
+        aug_text = augment_text(orig_text)
+        augmented_examples.append(Example.fromlist([aug_text.split(), ex.label], fields=[('text', TEXT), ('label', LABEL)]))
+    return augmented_examples
+
+train_examples = train_data.examples + augment_dataset(train_data)
+train_data = data.Dataset(train_examples, fields=[('text', TEXT), ('label', LABEL)])
 train_data, valid_data = train_data.split(split_ratio=0.8, random_state=random.seed(SEED))
-print(f'Number of training examples: {len(train_data)}')
-print(f'Number of validation examples: {len(valid_data)}')
-print(f'Number of testing examples: {len(test_data)}')
 
-# 构建词汇表
-TEXT.build_vocab(train_data, max_size=10000)
+TEXT.build_vocab(train_data, max_size=20000)
 LABEL.build_vocab(train_data)
 
-print(f"Unique tokens in TEXT vocabulary: {len(TEXT.vocab)}")
-print(f"Unique tokens in LABEL vocabulary: {len(LABEL.vocab)}")
+word2vec_vectors = api.load('word2vec-google-news-300')
+embedding_dim = 300
+vocab_size = len(TEXT.vocab)
+embedding_matrix = np.random.uniform(-0.25, 0.25, (vocab_size, embedding_dim))
+for word, idx in TEXT.vocab.stoi.items():
+    if word in word2vec_vectors:
+        embedding_matrix[idx] = word2vec_vectors[word]
+embedding_matrix = torch.FloatTensor(embedding_matrix)
 
-# 创建数据迭代器
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 train_iterator, valid_iterator, test_iterator = data.BucketIterator.splits(
     (train_data, valid_data, test_data),
     batch_size=BATCH_SIZE,
@@ -187,49 +168,93 @@ train_iterator, valid_iterator, test_iterator = data.BucketIterator.splits(
     device=device
 )
 
-# 初始化模型
 VOCAB_SIZE = len(TEXT.vocab)
-EMBEDDING_DIM = 100
-HIDDEN_DIM = 128
-OUTPUT_DIM_CLASS = len(LABEL.vocab)
+EMBEDDING_DIM = 300
+HIDDEN_DIM = 256
+OUTPUT_DIM = len(LABEL.vocab)
 
-model = MTL_AttentionPooling(VOCAB_SIZE, EMBEDDING_DIM, HIDDEN_DIM, OUTPUT_DIM_CLASS)
-print(f'The model has {count_parameters(model):,} trainable parameters')
+model = EnhancedTextClassifier(
+    vocab_size=VOCAB_SIZE,
+    embedding_dim=EMBEDDING_DIM,
+    hidden_dim=HIDDEN_DIM,
+    output_dim=OUTPUT_DIM,
+    dropout=0.3
+)
 
-optimizer = optim.Adam(model.parameters(), lr=0.001)
-criterion_class = nn.CrossEntropyLoss()
-criterion_reg = nn.MSELoss()
-
+model.embedding.weight.data.copy_(embedding_matrix)
+model.embedding.weight.requires_grad = True
 model = model.to(device)
-criterion_class = criterion_class.to(device)
-criterion_reg = criterion_reg.to(device)
 
-# 训练循环
+class LabelSmoothingLoss(nn.Module):
+    def __init__(self, classes, smoothing=0.1):
+        super().__init__()
+        self.confidence = 1.0 - smoothing
+        self.smoothing = smoothing
+        self.cls = classes
+        
+    def forward(self, pred, target):
+        pred = pred.log_softmax(dim=-1)
+        with torch.no_grad():
+            true_dist = torch.zeros_like(pred)
+            true_dist.fill_(self.smoothing / (self.cls - 1))
+            true_dist.scatter_(1, target.unsqueeze(1), self.confidence)
+        return torch.mean(torch.sum(-true_dist * pred, dim=-1))
+
+criterion = LabelSmoothingLoss(classes=OUTPUT_DIM, smoothing=0.1).to(device)
+optimizer = optim.AdamW(model.parameters(), lr=0.0002, weight_decay=1e-4)
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=N_EPOCHS)
+
+def train(model, iterator, optimizer, criterion):
+    epoch_loss = 0
+    epoch_acc = 0
+    model.train()
+    for batch in iterator:
+        optimizer.zero_grad()
+        text, text_lengths = batch.text
+        predictions = model(text, text_lengths)
+        loss = criterion(predictions, batch.label)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        optimizer.step()
+        epoch_loss += loss.item()
+        epoch_acc += (predictions.argmax(1) == batch.label).float().mean().item()
+    return epoch_loss / len(iterator), epoch_acc / len(iterator)
+
+def evaluate(model, iterator, criterion):
+    epoch_loss = 0
+    epoch_acc = 0
+    model.eval()
+    with torch.no_grad():
+        for batch in iterator:
+            text, text_lengths = batch.text
+            predictions = model(text, text_lengths)
+            loss = criterion(predictions, batch.label)
+            epoch_loss += loss.item()
+            epoch_acc += (predictions.argmax(1) == batch.label).float().mean().item()
+    return epoch_loss / len(iterator), epoch_acc / len(iterator)
+
 best_valid_loss = float('inf')
-model_path = 'mtl-attention-model.pt'
-alpha = 0.7
-
 for epoch in range(N_EPOCHS):
     start_time = time.time()
-    train_loss, train_acc, train_reg_loss = train(model, train_iterator, optimizer, criterion_class, criterion_reg, alpha)
-    valid_loss, valid_acc, valid_reg_loss = evaluate(model, valid_iterator, criterion_class, criterion_reg, alpha)
+    train_loss, train_acc = train(model, train_iterator, optimizer, criterion)
+    valid_loss, valid_acc = evaluate(model, valid_iterator, criterion)
+    scheduler.step()
+    
     end_time = time.time()
-    epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+    epoch_mins, epoch_secs = divmod(end_time - start_time, 60)
 
     if valid_loss < best_valid_loss:
         best_valid_loss = valid_loss
-        torch.save(model.state_dict(), model_path)
-        print(f"Model saved to {model_path}")
+        torch.save(model.state_dict(), 'enhanced-model.pt')
 
-    print(f'Epoch: {epoch+1:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')
-    print(f'\tTrain Class Loss: {train_loss:.3f} | Train Acc: {train_acc*100:.2f}% | Train Reg Loss: {train_reg_loss:.3f}')
-    print(f'\tValid Class Loss: {valid_loss:.3f} | Valid Acc: {valid_acc*100:.2f}% | Valid Reg Loss: {valid_reg_loss:.3f}')
+    print(f'Epoch: {epoch+1:02} | Time: {int(epoch_mins)}m {int(epoch_secs)}s')
+    print(f'\tTrain Loss: {train_loss:.3f} | Train Acc: {train_acc*100:.2f}%')
+    print(f'\tVal. Loss: {valid_loss:.3f} | Val. Acc: {valid_acc*100:.2f}%')
 
-# 加载最佳模型并评估
-model.load_state_dict(torch.load(model_path))
+model.load_state_dict(torch.load('enhanced-model.pt'))
+valid_loss, valid_acc = evaluate(model, valid_iterator, criterion)
+test_loss, test_acc = evaluate(model, test_iterator, criterion)
 
-valid_loss, valid_acc, valid_reg_loss = evaluate(model, valid_iterator, criterion_class, criterion_reg, alpha)
-print(f'Final Validation Class Loss: {valid_loss:.3f} | Validation Acc: {valid_acc*100:.2f}% | Validation Reg Loss: {valid_reg_loss:.3f}')
-
-test_loss, test_acc, test_reg_loss = evaluate(model, test_iterator, criterion_class, criterion_reg, alpha)
-print(f'Final Test Class Loss: {test_loss:.3f} | Test Acc: {test_acc*100:.2f}% | Test Reg Loss: {test_reg_loss:.3f}')
+print(f'\nFinal Results:')
+print(f'Validation Loss: {valid_loss:.3f} | Validation Accuracy: {valid_acc*100:.2f}%')
+print(f'Test Loss: {test_loss:.3f} | Test Accuracy: {test_acc*100:.2f}%')

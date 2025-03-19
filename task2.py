@@ -18,7 +18,6 @@ np.random.seed(SEED)
 torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 
-# Define the model
 class RNN(nn.Module):
     def __init__(self, vocab_size, embedding_dim, hidden_dim, output_dim, dropout_rate=0.5, pretrained_embeddings=None):
         super().__init__()
@@ -43,11 +42,9 @@ class RNN(nn.Module):
         hidden = self.dropout(hidden.squeeze(0))
         return self.fc(hidden)
 
-# Count model parameters
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-# Training function
 def train(model, iterator, optimizer, criterion):
     epoch_loss = 0
     epoch_acc = 0
@@ -74,7 +71,6 @@ def train(model, iterator, optimizer, criterion):
 
     return epoch_loss / len(iterator), epoch_acc / len(iterator)
 
-# Evaluation function
 def evaluate(model, iterator, criterion):
     epoch_loss = 0
     epoch_acc = 0
@@ -104,8 +100,7 @@ def epoch_time(start_time, end_time):
     elapsed_secs = int(elapsed_time - (elapsed_mins * 60))
     return elapsed_mins, elapsed_secs
 
-# Data preprocessing
-BATCH_SIZE = 64
+BATCH_SIZE = 32
 N_EPOCHS = 10
 
 TEXT = data.Field(tokenize='spacy', tokenizer_language='en_core_web_sm', include_lengths=True)
@@ -118,16 +113,14 @@ print(f'Number of training examples: {len(train_data)}')
 print(f'Number of validation examples: {len(valid_data)}')
 print(f'Number of testing examples: {len(test_data)}')
 
-# Task 1 best hyperparameters (provided)
 best_params = {
-    'embedding_dim': 200,
-    'hidden_dim': 100,
-    'lr': 0.01,
-    'dropout_rate': 0.3,
-    'weight_decay': 0.0001
+    'embedding_dim': 50,
+    'hidden_dim': 200,
+    'lr': 0.005,
+    'dropout_rate': 0.4,
+    'weight_decay': 0
 }
 
-# Build vocabulary and load pretrained embeddings
 def build_vocab_with_pretrained(embedding_type):
     if embedding_type == 'glove':
         TEXT.build_vocab(train_data, max_size=10000, vectors=GloVe(name='6B', dim=best_params['embedding_dim']))
@@ -152,7 +145,6 @@ def build_vocab_with_pretrained(embedding_type):
         TEXT.build_vocab(train_data, max_size=10000)  # No pretrained embeddings (Task 1)
         return None
 
-# Data iterators
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 train_iterator, valid_iterator, test_iterator = data.BucketIterator.splits(
     (train_data, valid_data, test_data),
@@ -162,7 +154,6 @@ train_iterator, valid_iterator, test_iterator = data.BucketIterator.splits(
     device=device
 )
 
-# Run Task 1: Train with best hyperparameters
 def run_task1():
     print("\n=== Running Task 1 with Best Hyperparameters ===")
     pretrained_embeddings = build_vocab_with_pretrained(None)  # No pretrained embeddings
@@ -206,14 +197,12 @@ def run_task1():
         print(f'\tTrain Loss: {train_loss:.3f} | Train Acc: {train_acc*100:.2f}%')
         print(f'\tVal. Loss: {valid_loss:.3f} | Val. Acc: {valid_acc*100:.2f}%')
 
-    # Load the best model and evaluate on the test set
     model.load_state_dict(best_model_state)
     test_loss, test_acc = evaluate(model, test_iterator, criterion)
     print(f"\nTask 1 Test Loss: {test_loss:.3f} | Test Acc: {test_acc*100:.2f}%")
 
     return best_valid_acc, test_acc
 
-# Task 2: Experiment with pretrained embeddings
 def run_task2(embedding_type):
     print(f"\n=== Running Task 2 with {embedding_type.capitalize()} Embeddings ===")
     
@@ -224,7 +213,6 @@ def run_task2(embedding_type):
     VOCAB_SIZE = len(TEXT.vocab)
     OUTPUT_DIM = len(LABEL.vocab)
     embedding_dim = best_params['embedding_dim']
-    # Adjust embedding dimension based on pretrained embeddings
     if pretrained_embeddings is not None:
         embedding_dim = pretrained_embeddings.shape[1]
 
@@ -271,10 +259,8 @@ def run_task2(embedding_type):
 
     return best_valid_acc, test_acc
 
-# Execute Task 1
 task1_valid_acc, task1_test_acc = run_task1()
 
-# Execute Task 2 (GloVe, FastText, Word2Vec)
 embedding_types = ['glove', 'fasttext', 'word2vec']
 task2_results = {}
 
@@ -282,7 +268,6 @@ for emb_type in embedding_types:
     valid_acc, test_acc = run_task2(emb_type)
     task2_results[emb_type] = {'valid_acc': valid_acc, 'test_acc': test_acc}
 
-# Report results and comparison
 print("\n=== Final Results ===")
 print(f"\nTask 1 Results (Best Hyperparameters):")
 print(f"Validation Accuracy: {task1_valid_acc*100:.2f}%")
@@ -294,7 +279,6 @@ for emb_type, result in task2_results.items():
     print(f"Validation Accuracy: {result['valid_acc']*100:.2f}%")
     print(f"Test Accuracy: {result['test_acc']*100:.2f}%")
 
-# Comparison and analysis
 print("\n=== Comparison and Analysis ===")
 for emb_type, result in task2_results.items():
     valid_diff = result['valid_acc'] - task1_valid_acc
