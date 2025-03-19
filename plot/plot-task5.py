@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Labels for the configurations
-labels = ['Task 4 (Baseline)', 'CNN + Aug', 'New CNN + Aug']
+labels = ['Baseline (CNN + No Aug)', 'CNN + Aug', 'New CNN + No Aug', 'New CNN + Aug']
 val_acc = [89.32, 85.76, 94.97]  # Validation accuracies
 test_acc = [92.16, 87.82, 93.43]  # Test accuracies
 

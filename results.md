@@ -90,7 +90,7 @@ Final Results:
 Validation Loss: 0.708 | Validation Accuracy: 89.32%
 Test Loss: 0.659 | Test Accuracy: 92.16%
 
-New CNN and With Data arguement
+New CNN and Without Data arguement
 Final Results:
 Validation Loss: 0.590 | Validation Accuracy: 94.97%
 Test Loss: 0.639 | Test Accuracy: 93.43%
